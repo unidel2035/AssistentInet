@@ -1,0 +1,9 @@
+services:
+  soundmeter:
+    build: .
+    container_name: soundmeter
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./data:/app/data
