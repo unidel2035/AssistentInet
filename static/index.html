@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шумомер — Мониторинг</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --text:     #e6edf3;
+    --muted:    #8b949e;
+    --green:    #3fb950;
+    --yellow:   #d29922;
+    --orange:   #f0883e;
+    --red:      #f85149;
+    --blue:     #58a6ff;
+    --accent:   #1f6feb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  header h1 span { font-size: 22px; }
+  .status-badge {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 20px;
+    background: rgba(255,255,255,0.06); font-size: 13px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 2s infinite; }
+  .dot.error { background: var(--red); }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+  .header-time { margin-left: auto; font-size: 14px; color: var(--muted); display: flex; gap: 20px; }
+  .header-time strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .btn {
+    padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px;
+    transition: background .15s;
+  }
+  .btn:hover { background: #21262d; }
+  .btn.danger { border-color: var(--red); color: var(--red); }
+
+  /* ── Main layout ── */
+  main { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── Metric cards ── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .card .value { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+  .card .unit  { font-size: 13px; color: var(--muted); }
+  .card.primary { border-color: var(--accent); }
+  .card .sub   { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* dB color coding */
+  .lvl-safe   { color: var(--green); }
+  .lvl-mod    { color: var(--yellow); }
+  .lvl-high   { color: var(--orange); }
+  .lvl-danger { color: var(--red); }
+
+  /* ── Level bar ── */
+  .level-bar-wrap { margin-top: 8px; }
+  .level-bar-bg {
+    height: 6px; border-radius: 3px; background: var(--border); overflow: hidden;
+  }
+  .level-bar-fill {
+    height: 100%; border-radius: 3px; transition: width .5s ease, background .5s;
+  }
+
+  /* ── Chart ── */
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .chart-card h2 { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
+  .chart-wrap { height: 200px; }
+
+  /* ── Table ── */
+  .table-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+  }
+  .table-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+  }
+  .table-header h2 { font-size: 14px; color: var(--muted); }
+  .table-wrap { overflow-x: auto; max-height: 340px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    position: sticky; top: 0;
+    background: var(--surface); color: var(--muted);
+    text-align: right; padding: 10px 14px;
+    font-weight: 500; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  thead th:first-child { text-align: left; }
+  tbody tr { border-bottom: 1px solid rgba(48,54,61,.5); transition: background .1s; }
+  tbody tr:hover { background: rgba(255,255,255,.03); }
+  tbody td { padding: 9px 14px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  tbody td:first-child { text-align: left; color: var(--text); }
+  tbody td.hi { color: var(--text); font-weight: 600; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge.safe   { background: rgba(63,185,80,.15);  color: var(--green); }
+  .badge.mod    { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .badge.high   { background: rgba(240,136,62,.15); color: var(--orange); }
+  .badge.danger { background: rgba(248,81,73,.15);  color: var(--red); }
+
+  /* ── Footer ── */
+  footer { text-align: center; padding: 16px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>🔊</span> Шумомер</h1>
+  <div class="status-badge">
+    <div class="dot" id="dot"></div>
+    <span id="statusText">Подключение...</span>
+  </div>
+  <button class="btn" onclick="resetStats()">Сбросить статистику</button>
+  <button class="btn" onclick="exportCsv()">Экспорт CSV</button>
+  <div class="header-time">
+    <div>Время: <strong id="clock">--:--:--</strong></div>
+    <div>Время работы: <strong id="uptime">0:00:00</strong></div>
+    <div>Измерений: <strong id="count">0</strong></div>
+  </div>
+</header>
+
+<main>
+
+  <!-- Metric cards -->
+  <div class="cards">
+
+    <div class="card primary">
+      <div class="label">dB(A) — текущий</div>
+      <div class="value" id="aRms">—</div>
+      <div class="unit">дБ(А) RMS</div>
+      <div class="level-bar-wrap">
+        <div class="level-bar-bg"><div class="level-bar-fill" id="aBar" style="width:0%"></div></div>
+      </div>
+      <div class="sub" id="aFastSlow">SLOW — &nbsp; FAST —</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Leq — эквивалентный</div>
+      <div class="value lvl-safe" id="leq">—</div>
+      <div class="unit">дБ(А) Leq</div>
+      <div class="sub" id="leqSub">за всё время сессии</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Lmax — максимальный</div>
+      <div class="value" id="lmax">—</div>
+      <div class="unit">дБ(А) MAX</div>
+      <div class="sub" id="lmaxSub">с начала сессии</div>
+    </div>
+
+    <div class="card">
+      <div class="label">dB(C) — текущий</div>
+      <div class="value" id="cRms">—</div>
+      <div class="unit">дБ(С) RMS</div>
+    </div>
+
+    <div class="card">
+      <div class="label">dB(Lin) — текущий</div>
+      <div class="value" id="linRms">—</div>
+      <div class="unit">дБ(Лин) RMS</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Состояние</div>
+      <div style="margin-top:6px" id="stateInfo">
+        <div style="font-size:14px;color:var(--muted)" id="deviceMode">—</div>
+        <div style="font-size:13px;color:var(--muted);margin-top:6px">Батарея: <strong id="battery">—</strong></div>
+        <div style="font-size:13px;color:var(--muted);margin-top:4px" id="lastUpdate">—</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Chart -->
+  <div class="chart-card">
+    <h2>Уровень дБ(А) — последние 60 секунд</h2>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-card">
+    <div class="table-header">
+      <h2>Журнал измерений</h2>
+      <span id="tableCount" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>дБ(А) RMS</th>
+            <th>дБ(А) SLOW</th>
+            <th>дБ(А) FAST</th>
+            <th>дБ(А) IMP</th>
+            <th>дБ(С) RMS</th>
+            <th>дБ(Лин)</th>
+            <th>Оценка</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="8" style="text-align:center;padding:30px;color:var(--muted)">Ожидание данных...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<footer>Шумомер UART v2 &nbsp;·&nbsp; Web Monitor</footer>
+
+<script>
+// ── Chart setup ────────────────────────────────────────────────────────────
+const chartCtx = document.getElementById('chart').getContext('2d');
+const chartData = {
+  labels: [],
+  datasets: [{
+    label: 'дБ(А)',
+    data: [],
+    borderColor: '#58a6ff',
+    backgroundColor: 'rgba(88,166,255,0.08)',
+    borderWidth: 2,
+    pointRadius: 0,
+    tension: 0.3,
+    fill: true,
+  }]
+};
+const chart = new Chart(chartCtx, {
+  type: 'line',
+  data: chartData,
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    scales: {
+      x: {
+        ticks: { color: '#8b949e', maxTicksLimit: 10, font: { size: 11 } },
+        grid: { color: 'rgba(48,54,61,0.6)' }
+      },
+      y: {
+        ticks: { color: '#8b949e', font: { size: 11 } },
+        grid: { color: 'rgba(48,54,61,0.6)' },
+        suggestedMin: 30,
+        suggestedMax: 100,
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: { label: ctx => `${ctx.parsed.y.toFixed(1)} дБ(А)` }
+      }
+    }
+  }
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function dbClass(v) {
+  if (v === null || v === undefined) return '';
+  if (v < 55)  return 'safe';
+  if (v < 70)  return 'mod';
+  if (v < 85)  return 'high';
+  return 'danger';
+}
+function dbColor(v) {
+  const c = dbClass(v);
+  return c === 'safe' ? 'var(--green)' : c === 'mod' ? 'var(--yellow)' : c === 'high' ? 'var(--orange)' : 'var(--red)';
+}
+function fmt(v) { return v != null ? v.toFixed(1) : '—'; }
+function fmtUptime(s) {
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+
+// ── Level bar ──────────────────────────────────────────────────────────────
+function updateBar(id, v, min = 30, max = 110) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const pct = Math.min(100, Math.max(0, (v - min) / (max - min) * 100));
+  el.style.width = pct + '%';
+  el.style.background = dbColor(v);
+}
+
+// ── Clock ──────────────────────────────────────────────────────────────────
+setInterval(() => {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('ru-RU');
+}, 1000);
+
+// ── Table row history ──────────────────────────────────────────────────────
+const tableRows = [];
+const MAX_ROWS = 200;
+
+function addTableRow(ts, d, leq, lmax) {
+  tableRows.unshift({ ts, d, leq, lmax });
+  if (tableRows.length > MAX_ROWS) tableRows.pop();
+  renderTable();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  const rows = tableRows.slice(0, 50);
+  tbody.innerHTML = rows.map(r => {
+    const v = r.d.a_rms;
+    const cls = dbClass(v);
+    const labels = { safe: 'Тихо', mod: 'Умеренно', high: 'Громко', danger: 'Опасно' };
+    return `<tr>
+      <td>${r.ts}</td>
+      <td class="hi">${fmt(r.d.a_rms)}</td>
+      <td>${fmt(r.d.a_slow)}</td>
+      <td>${fmt(r.d.a_fast)}</td>
+      <td>${fmt(r.d.a_imp)}</td>
+      <td>${fmt(r.d.c_rms)}</td>
+      <td>${fmt(r.d.lin_rms)}</td>
+      <td><span class="badge ${cls}">${labels[cls] || '—'}</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tableCount').textContent = `${tableRows.length} записей`;
+}
+
+// ── Update UI ──────────────────────────────────────────────────────────────
+function updateUI(msg) {
+  const d = msg.data || {};
+
+  // Status
+  const dot = document.getElementById('dot');
+  dot.className = 'dot' + (msg.connected ? ' connected' : '');
+  document.getElementById('statusText').textContent = msg.status || '';
+
+  // Key metrics
+  const aRms = d.a_rms;
+  document.getElementById('aRms').textContent = fmt(aRms);
+  document.getElementById('aRms').style.color = dbColor(aRms);
+  updateBar('aBar', aRms);
+  document.getElementById('aFastSlow').textContent =
+    `SLOW ${fmt(d.a_slow)} &nbsp; FAST ${fmt(d.a_fast)}`;
+
+  document.getElementById('leq').textContent = fmt(msg.leq);
+  document.getElementById('leq').style.color = dbColor(msg.leq);
+
+  document.getElementById('lmax').textContent = fmt(msg.lmax);
+  document.getElementById('lmax').style.color = dbColor(msg.lmax);
+
+  document.getElementById('cRms').textContent = fmt(d.c_rms);
+  document.getElementById('cRms').style.color = dbColor(d.c_rms);
+
+  document.getElementById('linRms').textContent = fmt(d.lin_rms);
+  document.getElementById('linRms').style.color = dbColor(d.lin_rms);
+
+  // State card
+  document.getElementById('battery').textContent =
+    d.battery_level != null ? d.battery_level + '%' : '—';
+  document.getElementById('lastUpdate').textContent =
+    'Обновлено: ' + (msg.ts || '—');
+
+  // Uptime / count
+  document.getElementById('uptime').textContent = fmtUptime(msg.uptime || 0);
+  document.getElementById('count').textContent = (msg.count || 0).toLocaleString();
+
+  // Chart
+  if (msg.chart && msg.chart.length) {
+    chartData.labels = msg.chart.map(p => p.t);
+    chartData.datasets[0].data = msg.chart.map(p => p.v);
+    chart.update('none');
+  }
+
+  // Table
+  if (msg.ts && d.a_rms != null) {
+    addTableRow(msg.ts, d, msg.leq, msg.lmax);
+  }
+}
+
+// ── WebSocket ──────────────────────────────────────────────────────────────
+let ws, reconnectTimer;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('dot').className = 'dot';
+    document.getElementById('statusText').textContent = 'Подключено к серверу';
+  };
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'status') {
+      document.getElementById('dot').className = 'dot' + (msg.connected ? ' connected' : '');
+      document.getElementById('statusText').textContent = msg.message;
+    } else if (msg.type === 'measurement' || msg.type === 'init') {
+      updateUI(msg);
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('dot').className = 'dot error';
+    document.getElementById('statusText').textContent = 'Переподключение...';
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  // Keep-alive ping
+  setInterval(() => { if (ws.readyState === 1) ws.send('ping'); }, 30000);
+}
+
+// ── Controls ────────────────────────────────────────────────────────────────
+async function resetStats() {
+  await fetch('/api/reset', { method: 'POST' });
+  tableRows.length = 0;
+  renderTable();
+  document.getElementById('leq').textContent = '—';
+  document.getElementById('lmax').textContent = '—';
+  document.getElementById('count').textContent = '0';
+}
+
+async function exportCsv() {
+  const resp = await fetch('/api/history?limit=10000');
+  const rows = await resp.json();
+  if (!rows.length) return;
+  const keys = ['ts', 'a_rms', 'a_slow', 'a_fast', 'c_rms', 'lin_rms'];
+  const header = 'Время,дБ(А) RMS,дБ(А) Slow,дБ(А) Fast,дБ(С) RMS,дБ(Лин) RMS';
+  const csv = [header, ...rows.map(r => keys.map(k => r[k] ?? '').join(','))].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `noise_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+  a.click();
+}
+
+connect();
+</script>
+</body>
+</html>
